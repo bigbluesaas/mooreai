@@ -2,18 +2,16 @@ const express = require('express');
 const path = require('path');
 const app = express();
 
-// --- STEP 1: KILL THE 503 ERROR ---
-// We bind to the port IMMEDIATELY. This tells Hostinger the app is healthy
-// before we even try to load Firebase or APIs.
+// --- STEP 1: PORT BINDING (KILL 503) ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`[BOOT] Server strictly listening on port ${PORT}`);
+    console.log(`[SYSTEM] Server online on port ${PORT}`);
 });
 
 app.use(express.json());
 app.use(express.static('.'));
 
-// --- STEP 2: LOAD FIREBASE SAFELY ---
+// --- STEP 2: STABLE FIREBASE ---
 const { initializeApp } = require('firebase/app');
 const { getFirestore, doc, getDoc } = require('firebase/firestore');
 
@@ -26,13 +24,12 @@ try {
     if (firebaseConfig.apiKey) {
         const fbApp = initializeApp(firebaseConfig);
         db = getFirestore(fbApp);
-        console.log('[BOOT] Firebase Initialized.');
     }
 } catch (e) {
-    console.error('[BOOT] Firebase Config Error:', e.message);
+    console.error('Firebase Config Error:', e.message);
 }
 
-// In-memory logs for the dashboard
+// In-memory logs
 const SYSTEM_LOGS = [];
 const pushLog = (msg, type = 'info') => {
     SYSTEM_LOGS.unshift({ time: new Date().toLocaleTimeString(), msg, type });
@@ -42,7 +39,6 @@ const pushLog = (msg, type = 'info') => {
 
 const axios = require('axios');
 
-// Helper: Pull settings from Firestore
 async function getSettings() {
     if (!db) return null;
     try {
@@ -50,17 +46,21 @@ async function getSettings() {
         const docSnap = await getDoc(docRef);
         return docSnap.exists() ? docSnap.data() : null;
     } catch (e) {
-        pushLog(`Database Read Error: ${e.message}`, 'error');
+        pushLog(`DB Error: ${e.message}`, 'error');
         return null;
     }
 }
 
-// API Routes
+// --- API ROUTES ---
+
+// Simple verification route
+app.get('/api/test', (req, res) => res.send('Server is responding!'));
+
 app.get('/api/debug/logs', (req, res) => res.json({ logs: SYSTEM_LOGS }));
 
 app.get('/api/health', async (req, res) => {
     const s = await getSettings();
-    res.json({ online: true, db_ready: !!db, setup_complete: !!(s?.GHL_ACCESS_TOKEN) });
+    res.json({ online: true, db: !!db, setup: !!(s?.GHL_ACCESS_TOKEN) });
 });
 
 app.post('/api/ghl/sync', async (req, res) => {
@@ -77,7 +77,7 @@ app.post('/api/ghl/sync', async (req, res) => {
                 'Version': '2021-07-28',
                 'Accept': 'application/json'
             },
-            timeout: 10000
+            timeout: 12000
         });
 
         const leads = response.data.opportunities || [];
@@ -94,7 +94,7 @@ app.post('/api/ghl/sync', async (req, res) => {
             },
             opportunities: leads.length === 0 ? [
                 { id: 'd1', name: 'Demo: Elite Solar Project', status: 'open', value: 25000, contact: 'James Miller' },
-                { id: 'd2', name: 'Demo: Roofing Project', status: 'won', value: 42000, contact: 'Sarah Chen' }
+                { id: 'd2', name: 'Demo: Roofing Estimate', status: 'won', value: 42000, contact: 'Sarah Chen' }
             ] : leads.map(l => ({
                 id: l.id,
                 name: l.name || 'Unnamed',
@@ -109,4 +109,21 @@ app.post('/api/ghl/sync', async (req, res) => {
     }
 });
 
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+// Added back the AI Token endpoint
+app.post('/api/ai/chat-token', async (req, res) => {
+    try {
+        const s = await getSettings();
+        if (!s?.ELEVENLABS_API_KEY) throw new Error('AI Key Missing');
+        const response = await axios.get(`https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${s.ELEVENLABS_AGENT_ID}`, {
+            headers: { 'xi-api-key': s.ELEVENLABS_API_KEY }
+        });
+        res.json({ success: true, signedUrl: response.data.signed_url });
+    } catch (e) {
+        pushLog(`AI Error: ${e.message}`, 'error');
+        res.status(500).json({ success: false });
+    }
+});
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
