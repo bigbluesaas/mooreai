@@ -1,13 +1,14 @@
 {
   "name": "mooreai-saas",
-  "version": "2.0.0",
-  "description": "Enterprise Dashboard - Standardized Build",
+  "version": "2.2.0",
+  "description": "Enterprise Dashboard - SDK Optimized Build",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "build": "echo 'Build successful'"
   },
   "dependencies": {
+    "@gohighlevel/api-client": "^1.0.0",
     "axios": "^1.6.0",
     "express": "^4.18.2",
     "firebase": "^11.0.0"
