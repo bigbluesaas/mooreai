@@ -1,22 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc } from 'firebase/firestore';
 import { 
   LayoutDashboard, Users, BrainCircuit, Settings, PhoneCall, Mic, Plus, 
   TrendingUp, ArrowRight, Loader2, BarChart3, Lock, ShieldCheck, Zap,
-  Terminal, Activity, AlertCircle, Key, Globe
+  Terminal, Activity, AlertCircle, Key, Globe, Sparkles
 } from 'lucide-react';
 
-// Initialize Firebase (Variables injected by Canvas environment)
+// Firebase Globals from Canvas Environment
 const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
 const appId = window.__app_id || 'default-app';
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 const App = () => {
-  const [needsSetup, setNeedsSetup] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('loading'); // loading, setup, dashboard
   const [crmData, setCrmData] = useState({ stats: { pipelineValue: 0, totalLeads: 0, winRate: 0, aiActions: 0 }, opportunities: [] });
   const [systemLogs, setSystemLogs] = useState([]);
   const [setupData, setSetupData] = useState({ GHL_ACCESS_TOKEN: '', GHL_LOCATION_ID: '', ELEVENLABS_API_KEY: '', ELEVENLABS_AGENT_ID: '' });
@@ -25,33 +24,48 @@ const App = () => {
     try {
       const res = await fetch('/api/ghl/sync', { method: 'POST' });
       const result = await res.json();
-      if (result.needs_setup) setNeedsSetup(true);
-      setCrmData(result);
+      
+      if (result.needs_setup) {
+        setView('setup');
+      } else {
+        setCrmData(result);
+        setView('dashboard');
+      }
       
       const logRes = await fetch('/api/debug/logs');
       const logData = await logRes.json();
       setSystemLogs(logData.logs);
-      setLoading(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e);
+      setView('setup');
+    }
   };
 
   useEffect(() => { sync(); }, []);
 
   const handleSetup = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setView('loading');
     try {
-      // Save to secure Firestore location
+      // Save keys to secure Firestore path
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings'), setupData);
-      setNeedsSetup(false);
-      setTimeout(sync, 2000); // Wait for server to pick up changes
+      // Give server a moment to realize keys are saved
+      setTimeout(sync, 1500);
     } catch (err) {
-      alert("Failed to save: " + err.message);
-      setLoading(false);
+      alert("Error saving: " + err.message);
+      setView('setup');
     }
   };
 
-  if (needsSetup) {
+  if (view === 'loading') {
+    return (
+      <div className="h-screen bg-[#020617] flex items-center justify-center">
+        <Loader2 className="animate-spin text-blue-500" size={48} />
+      </div>
+    );
+  }
+
+  if (view === 'setup') {
     return (
       <div className="h-screen bg-[#020617] flex items-center justify-center p-6">
         <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
@@ -60,14 +74,14 @@ const App = () => {
               <Key size={24} className="text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white">System Connection</h2>
-              <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">Portal v1.5</p>
+              <h2 className="text-xl font-bold text-white tracking-tight">System Connection</h2>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Portal v1.6.0</p>
             </div>
           </div>
 
           <form onSubmit={handleSetup} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">GoHighLevel PIT Token</label>
+              <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">GHL Access Token (PIT)</label>
               <input 
                 type="password" 
                 placeholder="pit-..." 
@@ -88,70 +102,83 @@ const App = () => {
                 required
               />
             </div>
-            <div className="pt-4">
-              <button 
-                type="submit" 
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="animate-spin" size={20} /> : "Initialize Connection"}
-              </button>
+            <div className="space-y-1.5 pt-2 border-t border-slate-800 mt-4">
+              <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">ElevenLabs API Key</label>
+              <input 
+                type="password" 
+                placeholder="sk_..." 
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none transition-all"
+                value={setupData.ELEVENLABS_API_KEY}
+                onChange={e => setSetupData({...setupData, ELEVENLABS_API_KEY: e.target.value})}
+              />
             </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase font-bold text-slate-500 ml-1">ElevenLabs Agent ID</label>
+              <input 
+                type="text" 
+                placeholder="agent_..." 
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500 outline-none transition-all"
+                value={setupData.ELEVENLABS_AGENT_ID}
+                onChange={e => setSetupData({...setupData, ELEVENLABS_AGENT_ID: e.target.value})}
+              />
+            </div>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all mt-4">
+              Initialize Connection
+            </button>
           </form>
-          <p className="text-[10px] text-center text-slate-600 mt-6">Credentials are encrypted and stored in your private Firestore instance.</p>
+          <div className="mt-6 p-4 bg-blue-600/5 rounded-xl border border-blue-500/10">
+            <p className="text-[10px] text-slate-500 leading-relaxed italic text-center">
+              Credentials are encrypted and stored in your private Firestore instance.
+            </p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-[#020617] text-slate-200 overflow-hidden">
-      {/* Sidebar - Minimalist */}
-      <div className="w-64 border-r border-slate-800 flex flex-col p-6">
-        <div className="flex items-center gap-3 mb-12">
+    <div className="flex h-screen bg-[#020617] text-slate-200 overflow-hidden font-sans">
+      {/* Sidebar */}
+      <div className="w-64 border-r border-slate-800 flex flex-col p-6 bg-[#020617]">
+        <div className="flex items-center gap-3 mb-10">
             <Zap size={24} className="text-blue-500 fill-blue-500" />
-            <span className="font-black tracking-tighter text-white text-lg">MOORE AI</span>
+            <span className="font-black tracking-tighter text-white text-lg uppercase">Moore AI</span>
         </div>
-        <nav className="flex-1 space-y-2">
-            <div className="px-3 py-2 bg-blue-600/10 text-blue-400 rounded-xl flex items-center gap-3 border border-blue-500/20">
-                <LayoutDashboard size={18} /> <span className="text-sm font-bold">Dashboard</span>
+        <nav className="flex-1 space-y-1">
+            <div className="px-4 py-2.5 bg-blue-600/10 text-blue-400 rounded-xl flex items-center gap-3 border border-blue-500/20">
+                <LayoutDashboard size={18} /> <span className="text-sm font-bold tracking-tight">Command Center</span>
             </div>
-            <div className="px-3 py-2 text-slate-500 rounded-xl flex items-center gap-3 hover:bg-slate-800 transition-all cursor-pointer">
-                <BrainCircuit size={18} /> <span className="text-sm font-medium">AI Hub</span>
+            <div className="px-4 py-2.5 text-slate-500 rounded-xl flex items-center gap-3 hover:bg-slate-800 transition-all cursor-not-allowed opacity-50">
+                <BrainCircuit size={18} /> <span className="text-sm font-medium tracking-tight">Moore AI Hub</span>
             </div>
         </nav>
-        <div className="mt-auto bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-            <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">System Live</span>
-            </div>
-            <p className="text-[10px] text-slate-500 leading-tight">Connected to GHL Location {setupData.GHL_LOCATION_ID || 'Active'}</p>
-        </div>
+        <button onClick={() => setView('setup')} className="flex items-center gap-3 px-4 py-2.5 text-slate-500 hover:text-white transition-all text-sm mt-auto border-t border-slate-800 pt-6 group font-bold">
+            <Settings size={18} className="group-hover:rotate-90 transition-transform" /> Connection Settings
+        </button>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
-        <header className="h-16 border-b border-slate-800 flex items-center justify-between px-8 bg-[#020617]/50 backdrop-blur-xl">
-            <div className="text-[10px] font-mono text-slate-500 uppercase">Production // {appId}</div>
+        <header className="h-16 border-b border-slate-800 flex items-center justify-between px-8 backdrop-blur-md">
+            <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500 uppercase tracking-widest">
+                <Globe size={12} /> Live Environment // {appId}
+            </div>
             <div className="flex items-center gap-4">
-                <button onClick={() => setNeedsSetup(true)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-500 transition-all">
-                    <Settings size={18} />
-                </button>
-                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center font-bold text-xs text-white">JM</div>
+                <div className="px-3 py-1 rounded-full bg-blue-600/10 border border-blue-500/20 text-[10px] font-bold text-blue-400 uppercase tracking-widest">Enterprise</div>
+                <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700"></div>
             </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-10">
+        <main className="flex-1 overflow-y-auto p-10 space-y-10">
           <div className="max-w-6xl mx-auto space-y-10">
             <div className="flex items-end justify-between">
                 <div>
-                    <h1 className="text-5xl font-black text-white tracking-tighter mb-2">Command Center</h1>
-                    <p className="text-slate-500 font-medium">Real-time Lead Intelligence Pipeline</p>
+                    <h1 className="text-5xl font-black text-white tracking-tighter mb-2 italic">MOORE AI</h1>
+                    <p className="text-slate-500 font-medium tracking-tight">Enterprise Lead Intelligence & Response Pipeline</p>
                 </div>
-                <div className="flex gap-3">
-                    <button onClick={sync} className="px-6 py-3 bg-slate-900 border border-slate-800 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all flex items-center gap-2">
-                        <Activity size={16} className="text-blue-500" /> Force Sync
-                    </button>
-                </div>
+                <button onClick={sync} className="px-6 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs font-bold hover:bg-slate-800 transition-all flex items-center gap-2">
+                    <Activity size={14} className="text-blue-500" /> Refresh Stream
+                </button>
             </div>
 
             <div className="grid grid-cols-4 gap-6">
@@ -161,50 +188,50 @@ const App = () => {
                     { label: 'Win Rate', value: `${crmData.stats?.winRate || 0}%`, icon: TrendingUp },
                     { label: 'AI Actions', value: crmData.stats?.aiActions || 0, icon: Sparkles }
                 ].map((s, i) => (
-                    <div key={i} className="bg-slate-900/40 border border-slate-800 p-8 rounded-3xl hover:border-slate-700 transition-all group">
-                        <div className="p-3 bg-slate-800 w-fit rounded-2xl mb-6 group-hover:scale-110 transition-transform"><s.icon size={24} className="text-blue-500" /></div>
+                    <div key={i} className="bg-slate-900/40 border border-slate-800 p-8 rounded-[32px] hover:border-slate-700 transition-all">
+                        <div className="p-3 bg-slate-800 w-fit rounded-2xl mb-6"><s.icon size={24} className="text-blue-500" /></div>
                         <div className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1">{s.label}</div>
-                        <div className="text-3xl font-black text-white tracking-tight">{s.value}</div>
+                        <div className="text-3xl font-black text-white tracking-tighter">{s.value}</div>
                     </div>
                 ))}
             </div>
 
-            <div className="bg-slate-900/40 border border-slate-800 rounded-3xl overflow-hidden">
-                <div className="px-8 py-6 border-b border-slate-800 flex justify-between items-center">
-                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Pipeline Detail</h3>
-                    {crmData.isDemo && <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-1 rounded font-bold uppercase">Showing Demo Data</span>}
+            <div className="bg-slate-900/40 border border-slate-800 rounded-[32px] overflow-hidden">
+                <div className="px-8 py-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Current Pipeline</h3>
+                    {crmData.isDemo && <span className="text-[10px] bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full font-black uppercase tracking-widest">Demo Data Active</span>}
                 </div>
                 <div className="divide-y divide-slate-800">
                     {crmData.opportunities?.length > 0 ? crmData.opportunities.map(opp => (
-                        <div key={opp.id} className="px-8 py-6 flex items-center justify-between hover:bg-slate-800/30 transition-all">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center font-bold text-blue-400">{opp.name[0]}</div>
+                        <div key={opp.id} className="px-8 py-6 flex items-center justify-between hover:bg-slate-800/20 transition-all group">
+                            <div className="flex items-center gap-5">
+                                <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center font-bold text-slate-400 group-hover:text-blue-400 transition-colors uppercase">{opp.name[0]}</div>
                                 <div>
-                                    <div className="font-bold text-white">{opp.name}</div>
-                                    <div className="text-xs text-slate-500">{opp.contact}</div>
+                                    <div className="font-bold text-white group-hover:translate-x-1 transition-transform tracking-tight">{opp.name}</div>
+                                    <div className="text-xs text-slate-500 font-medium">{opp.contact}</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-12">
-                                <span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${opp.status === 'won' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>{opp.status}</span>
-                                <div className="text-lg font-black text-white w-24 text-right">${Number(opp.value).toLocaleString()}</div>
-                                <ArrowRight size={20} className="text-slate-700" />
+                                <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-md ${opp.status === 'won' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>{opp.status}</span>
+                                <div className="text-lg font-black text-white w-24 text-right tabular-nums tracking-tighter">${Number(opp.value).toLocaleString()}</div>
+                                <ArrowRight size={20} className="text-slate-800 group-hover:text-slate-500 transition-colors" />
                             </div>
                         </div>
-                    )) : <div className="py-20 text-center text-slate-600 font-medium">No active leads found. Configure your connection to start.</div>}
+                    )) : <div className="py-24 text-center text-slate-600 font-medium italic">Pipeline is currently empty. Connect GHL to stream live leads.</div>}
                 </div>
             </div>
 
-            {/* Terminal Debugger at the bottom */}
+            {/* System Console */}
             <div className="bg-black border border-slate-800 rounded-3xl p-6 font-mono text-[11px] h-48 overflow-y-auto">
                 <div className="flex items-center gap-2 mb-4 border-b border-slate-800 pb-2">
-                    <Terminal size={14} className="text-orange-500" />
-                    <span className="text-slate-500 uppercase font-bold tracking-widest">System Debug Stream</span>
+                    <Terminal size={14} className="text-blue-500" />
+                    <span className="text-slate-500 uppercase font-black tracking-[0.2em]">Live System Debug Console</span>
                 </div>
                 {systemLogs.map((l, i) => (
                     <div key={i} className="flex gap-4 mb-1">
-                        <span className="text-slate-700">[{l.time}]</span>
-                        <span className={`uppercase w-10 font-bold ${l.type === 'error' ? 'text-red-500' : 'text-blue-500'}`}>[{l.type}]</span>
-                        <span className="text-slate-400">{l.msg}</span>
+                        <span className="text-slate-700 shrink-0 font-bold">[{l.time}]</span>
+                        <span className={`uppercase w-10 font-bold shrink-0 ${l.type === 'error' ? 'text-red-500' : 'text-blue-500'}`}>[{l.type}]</span>
+                        <span className="text-slate-500 break-all">{l.msg}</span>
                     </div>
                 ))}
             </div>
@@ -214,8 +241,6 @@ const App = () => {
     </div>
   );
 };
-
-const Sparkles = ({size, className}) => <Zap size={size} className={className} />;
 
 const container = document.getElementById('root');
 const root = createRoot(container);
