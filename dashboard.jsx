@@ -295,3 +295,7 @@ if (rootEl) {
 }
 
 export default App;
+// At the very bottom of the file
+const container = document.getElementById('root');
+const root = createRoot(container);
+root.render(<App />);
