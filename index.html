@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Big Blue Intelligence | SaaS Portal</title>
@@ -16,7 +15,22 @@
     <script src="https://elevenlabs.io/convai-widget/index.js"></script>
     
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-    
+            <!-- 1. The "Map" that tells the browser where 'react' and 'lucide-react' live -->
+        <script type="importmap">
+        {
+          "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react-dom": "https://esm.sh/react-dom@18.2.0/client",
+            "lucide-react": "https://esm.sh/lucide-react@0.344.0"
+          }
+        }
+        </script>
+        
+        <!-- 2. The Babel "Translator" -->
+        <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+        
+        <!-- 3. Your Dashboard (Ensure type is text/babel) -->
+        <script type="text/babel" data-type="module" src="/dashboard.jsx"></script>
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #030712; margin: 0; padding: 0; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
