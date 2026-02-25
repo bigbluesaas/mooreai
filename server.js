@@ -1,79 +1,87 @@
 const express = require('express');
-const { initializeApp } = require('firebase/app');
-const { getFirestore, doc, getDoc } = require('firebase/firestore');
-const axios = require('axios');
 const path = require('path');
 const app = express();
+
+// --- STEP 1: KILL THE 503 ERROR ---
+// We bind to the port IMMEDIATELY. This tells Hostinger the app is healthy
+// before we even try to load Firebase or APIs.
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`[BOOT] Server strictly listening on port ${PORT}`);
+});
 
 app.use(express.json());
 app.use(express.static('.'));
 
-// --- FIREBASE INITIALIZATION ---
-// Uses the internal Canvas config provided to the environment
-const firebaseConfig = JSON.parse(process.env.__firebase_config || '{}');
-const fbApp = initializeApp(firebaseConfig);
-const db = getFirestore(fbApp);
-const appId = process.env.__app_id || 'default-app';
+// --- STEP 2: LOAD FIREBASE SAFELY ---
+const { initializeApp } = require('firebase/app');
+const { getFirestore, doc, getDoc } = require('firebase/firestore');
 
-// In-memory logs for the Dashboard Console
-const DEBUG_LOGS = [];
+let db = null;
+let appId = 'default-app';
+
+try {
+    const firebaseConfig = JSON.parse(process.env.__firebase_config || '{}');
+    appId = process.env.__app_id || 'default-app';
+    if (firebaseConfig.apiKey) {
+        const fbApp = initializeApp(firebaseConfig);
+        db = getFirestore(fbApp);
+        console.log('[BOOT] Firebase Initialized.');
+    }
+} catch (e) {
+    console.error('[BOOT] Firebase Config Error:', e.message);
+}
+
+// In-memory logs for the dashboard
+const SYSTEM_LOGS = [];
 const pushLog = (msg, type = 'info') => {
-    const logEntry = { time: new Date().toLocaleTimeString(), msg, type };
-    DEBUG_LOGS.unshift(logEntry);
-    if (DEBUG_LOGS.length > 50) DEBUG_LOGS.pop();
+    SYSTEM_LOGS.unshift({ time: new Date().toLocaleTimeString(), msg, type });
+    if (SYSTEM_LOGS.length > 50) SYSTEM_LOGS.pop();
     console.log(`[${type.toUpperCase()}] ${msg}`);
 };
 
+const axios = require('axios');
+
 // Helper: Pull settings from Firestore
 async function getSettings() {
+    if (!db) return null;
     try {
         const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
         const docSnap = await getDoc(docRef);
         return docSnap.exists() ? docSnap.data() : null;
     } catch (e) {
-        pushLog(`Database Error: ${e.message}`, 'error');
+        pushLog(`Database Read Error: ${e.message}`, 'error');
         return null;
     }
 }
 
-pushLog('System Boot: Stable Proxy Mode Active.');
+// API Routes
+app.get('/api/debug/logs', (req, res) => res.json({ logs: SYSTEM_LOGS }));
 
-// 1. Log Stream for Dashboard
-app.get('/api/debug/logs', (req, res) => res.json({ logs: DEBUG_LOGS }));
-
-// 2. Health Check
 app.get('/api/health', async (req, res) => {
-    const settings = await getSettings();
-    res.json({ 
-        status: 'online', 
-        db_connected: !!firebaseConfig.apiKey,
-        setup_complete: !!(settings?.GHL_ACCESS_TOKEN)
-    });
+    const s = await getSettings();
+    res.json({ online: true, db_ready: !!db, setup_complete: !!(s?.GHL_ACCESS_TOKEN) });
 });
 
-// 3. GHL Sync (The core API function)
 app.post('/api/ghl/sync', async (req, res) => {
-    pushLog('Frontend requested sync...');
+    pushLog('Sync requested...');
     try {
         const settings = await getSettings();
-        
-        if (!settings || !settings.GHL_ACCESS_TOKEN || !settings.GHL_LOCATION_ID) {
-            pushLog('Settings missing in database. Redirecting to Setup Portal.', 'warn');
+        if (!settings || !settings.GHL_ACCESS_TOKEN) {
             return res.json({ success: true, needs_setup: true });
         }
 
-        // V2 GHL API Call via Axios (Stable)
         const response = await axios.get(`https://services.leadconnectorhq.com/opportunities/search?locationId=${settings.GHL_LOCATION_ID}`, {
             headers: { 
                 'Authorization': `Bearer ${settings.GHL_ACCESS_TOKEN}`, 
                 'Version': '2021-07-28',
                 'Accept': 'application/json'
             },
-            timeout: 12000
+            timeout: 10000
         });
 
         const leads = response.data.opportunities || [];
-        pushLog(`Sync complete. Found ${leads.length} opportunities.`);
+        pushLog(`Pulled ${leads.length} leads.`);
 
         res.json({
             success: true,
@@ -86,39 +94,19 @@ app.post('/api/ghl/sync', async (req, res) => {
             },
             opportunities: leads.length === 0 ? [
                 { id: 'd1', name: 'Demo: Elite Solar Project', status: 'open', value: 25000, contact: 'James Miller' },
-                { id: 'd2', name: 'Demo: Roofing Estimate', status: 'won', value: 42000, contact: 'Sarah Chen' }
+                { id: 'd2', name: 'Demo: Roofing Project', status: 'won', value: 42000, contact: 'Sarah Chen' }
             ] : leads.map(l => ({
                 id: l.id,
                 name: l.name || 'Unnamed',
                 status: (l.status || 'open').toLowerCase(),
                 value: l.monetaryValue || 0,
                 contact: l.contact?.name || 'Unknown'
-            })).slice(0, 15)
+            })).slice(0, 10)
         });
-
     } catch (error) {
-        pushLog(`GHL API Failure: ${error.message}`, 'error');
+        pushLog(`Sync Error: ${error.message}`, 'error');
         res.json({ success: true, isDemo: true, error: error.message });
     }
 });
 
-// 4. ElevenLabs Chat Token
-app.post('/api/ai/chat-token', async (req, res) => {
-    try {
-        const settings = await getSettings();
-        if (!settings?.ELEVENLABS_API_KEY) throw new Error('EL Key Missing');
-        
-        const response = await axios.get(`https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${settings.ELEVENLABS_AGENT_ID}`, {
-            headers: { 'xi-api-key': settings.ELEVENLABS_API_KEY }
-        });
-        res.json({ success: true, signedUrl: response.data.signed_url });
-    } catch (e) {
-        pushLog(`AI Error: ${e.message}`, 'error');
-        res.status(500).json({ success: false });
-    }
-});
-
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => pushLog(`SERVER IS LIVE ON PORT ${PORT}`));
