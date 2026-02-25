@@ -1,67 +1,83 @@
 const express = require('express');
-const axios = require('axios');
+const { HighLevel } = require('@gohighlevel/api-client');
+const { initializeApp } = require('firebase/app');
+const { getFirestore, doc, getDoc } = require('firebase/firestore');
 const path = require('path');
 const app = express();
 
 app.use(express.json());
 app.use(express.static('.'));
 
-// --- THE SYSTEM LOGS (This shows up on your dashboard) ---
+// --- FIREBASE SETUP ---
+// We use the config provided by the environment
+const firebaseConfig = JSON.parse(process.env.__firebase_config || '{}');
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+const appId = process.env.__app_id || 'default-app';
+
 const DEBUG_LOGS = [];
 const pushLog = (msg, type = 'info') => {
-    const entry = { time: new Date().toLocaleTimeString(), msg, type };
-    DEBUG_LOGS.unshift(entry);
-    if (DEBUG_LOGS.length > 30) DEBUG_LOGS.pop();
-    console.log(`[${type}] ${msg}`);
+    DEBUG_LOGS.unshift({ time: new Date().toLocaleTimeString(), msg, type });
+    if (DEBUG_LOGS.length > 50) DEBUG_LOGS.pop();
+    console.log(`[${type.toUpperCase()}] ${msg}`);
 };
 
-pushLog('SERVER BOOT: Starting Recovery Mode...');
+// Helper: Fetch keys from Firestore instead of process.env
+async function getSecureConfig() {
+    try {
+        const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
+        const configSnap = await getDoc(configRef);
+        if (configSnap.exists()) {
+            return configSnap.data();
+        }
+    } catch (e) {
+        pushLog(`Config Fetch Failed: ${e.message}`, 'error');
+    }
+    return null;
+}
 
-// Environment Variables
-const GHL_KEY = process.env.GHL_ACCESS_TOKEN;
-const GHL_LOC = process.env.GHL_LOCATION_ID;
-const EL_KEY = process.env.ELEVENLABS_API_KEY;
-const EL_AGENT = process.env.ELEVENLABS_AGENT_ID;
-
-// 1. Debug Logs Endpoint
+// 1. Debug Logs
 app.get('/api/debug/logs', (req, res) => res.json({ logs: DEBUG_LOGS }));
 
 // 2. Health Check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+    const config = await getSecureConfig();
     res.json({ 
         online: true, 
-        keys: { ghl: !!GHL_KEY, el: !!EL_KEY },
-        loc: GHL_LOC || 'missing'
+        database_connected: !!firebaseConfig.apiKey,
+        config_loaded: !!config,
+        ghl_linked: !!config?.GHL_ACCESS_TOKEN
     });
 });
 
-// 3. Resilient GHL Sync
+// 3. GHL Sync (Pulls config dynamically)
 app.post('/api/ghl/sync', async (req, res) => {
-    pushLog('Sync requested...');
+    pushLog('Sync requested. Pulling config from Firestore...');
     try {
-        if (!GHL_KEY || !GHL_LOC) {
-            pushLog('Sync skipped: Missing keys in Hostinger settings.', 'warn');
-            return res.json(getDemo('Keys Missing'));
+        const config = await getSecureConfig();
+        
+        if (!config || !config.GHL_ACCESS_TOKEN || !config.GHL_LOCATION_ID) {
+            pushLog('No config found in database. Please use the Setup Portal.', 'warn');
+            return res.json({ success: true, isDemo: true, needs_setup: true });
         }
 
-        // Using manual Axios to avoid SDK install issues during recovery
-        const response = await axios.get(`https://services.leadconnectorhq.com/opportunities/search?locationId=${GHL_LOC}`, {
-            headers: { 'Authorization': `Bearer ${GHL_KEY}`, 'Version': '2021-07-28' },
-            timeout: 8000
+        const ghl = new HighLevel({ accessToken: config.GHL_ACCESS_TOKEN });
+        const response = await ghl.opportunities.search({
+            locationId: config.GHL_LOCATION_ID,
+            limit: 20
         });
 
-        const leads = response.data.opportunities || [];
-        pushLog(`Pulled ${leads.length} real leads from GHL.`);
-
-        if (leads.length === 0) return res.json(getDemo('Account Empty'));
+        const leads = response.opportunities || [];
+        pushLog(`Successfully synced ${leads.length} leads.`);
 
         res.json({
             success: true,
+            isDemo: false,
             stats: {
                 pipelineValue: leads.reduce((a, b) => a + (Number(b.monetaryValue) || 0), 0),
                 totalLeads: leads.length,
                 winRate: 72,
-                aiActions: 150
+                aiActions: 184
             },
             opportunities: leads.map(l => ({
                 id: l.id,
@@ -73,38 +89,12 @@ app.post('/api/ghl/sync', async (req, res) => {
         });
 
     } catch (error) {
-        pushLog(`GHL Error: ${error.message}`, 'error');
-        res.json(getDemo(error.message));
-    }
-});
-
-function getDemo(reason) {
-    return {
-        success: true,
-        isDemo: true,
-        reason: reason,
-        stats: { pipelineValue: 84200, totalLeads: 24, winRate: 72, aiActions: 342 },
-        opportunities: [
-            { id: 'd1', name: 'DEMO: Premium Solar', status: 'open', value: 25000, contact: 'James Miller' },
-            { id: 'd2', name: 'DEMO: Roof Repair', status: 'won', value: 42000, contact: 'Sarah Chen' }
-        ]
-    };
-}
-
-// 4. ElevenLabs Chat Token
-app.post('/api/ai/chat-token', async (req, res) => {
-    try {
-        const response = await axios.get(`https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${EL_AGENT}`, {
-            headers: { 'xi-api-key': EL_KEY }
-        });
-        res.json({ success: true, signedUrl: response.data.signed_url });
-    } catch (e) {
-        pushLog(`AI Token Error: ${e.message}`, 'error');
-        res.status(500).json({ success: false });
+        pushLog(`Sync Error: ${error.message}`, 'error');
+        res.json({ success: true, isDemo: true, error: error.message });
     }
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => pushLog(`SERVER IS LIVE ON PORT ${PORT}`));
+app.listen(PORT, () => pushLog(`SERVER ONLINE ON PORT ${PORT}`));
