@@ -1,15 +1,17 @@
 {
   "name": "mooreai-saas",
-  "version": "1.3.0",
-  "description": "Enterprise Dashboard - Total Recovery Mode",
+  "version": "1.5.0",
+  "description": "Enterprise Dashboard with Firestore Configuration",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "build": "echo 'Recovery build successful'"
+    "build": "echo 'Build successful'"
   },
   "dependencies": {
+    "@gohighlevel/api-client": "^1.0.8",
     "axios": "^1.6.0",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "firebase": "^11.0.0"
   },
   "engines": {
     "node": ">=20.x"
