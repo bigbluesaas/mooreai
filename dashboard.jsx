@@ -26,30 +26,29 @@ const App = () => {
   const elRef = useRef(null);
 
   // Sync data from the Node.js backend
-  useEffect(() => {
+ useEffect(() => {
     const syncCRM = async () => {
       try {
         const response = await fetch('/api/ghl/sync', { method: 'POST' });
         const result = await response.json();
         
-        if (result && result.opportunities) {
-            const totalValue = result.opportunities.reduce((acc, curr) => acc + (curr.monetaryValue || 0), 0);
-            setCrmData({
-                loading: false,
-                stats: { 
-                    pipelineValue: totalValue, 
-                    totalLeads: result.meta?.total || result.opportunities.length, 
-                    winRate: 72, 
-                    aiActions: 148 
-                },
-                opportunities: result.opportunities
-            });
+        if (result.success) {
+          setCrmData({
+            loading: false,
+            stats: result.stats,
+            opportunities: result.opportunities
+          });
+        } else {
+          console.error("Sync Failed:", result.error);
+          // Set loading to false so it stops spinning even if it fails
+          setCrmData(prev => ({ ...prev, loading: false }));
         }
-      } catch (err) {
-        console.error("CRM Synchronization Failed:", err);
+      } catch (e) {
+        console.error("Network Error:", e);
         setCrmData(prev => ({ ...prev, loading: false }));
       }
     };
+
     syncCRM();
   }, []);
 
