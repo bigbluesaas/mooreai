@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createRoot } from 'react-dom'; // Add this line
 import { 
   LayoutDashboard, Users, BrainCircuit, Settings, PhoneCall, Mic, MicOff, Plus, 
   TrendingUp, Calendar, ArrowRight, Loader2, MessageSquare, BarChart3, Lock, 
