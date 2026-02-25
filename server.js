@@ -23,27 +23,28 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// 2. GHL Sync Endpoint (The "API Function")
+// 2. GHL Sync Endpoint (Updated for GHL V2 Official API)
 app.post('/api/ghl/sync', async (req, res) => {
-    console.log('Syncing for location:', GHL_LOCATION);
+    console.log('Attempting GHL V2 Sync for Location:', GHL_LOCATION);
     try {
-        if (!GHL_KEY || !GHL_LOCATION) throw new Error('Missing GHL Credentials');
+        if (!GHL_KEY || !GHL_LOCATION) throw new Error('Credentials missing in Environment Variables');
 
-        // We try the standard opportunities search endpoint
-        const response = await axios.get(`https://services.gohighlevel.com/opportunities/search?locationId=${GHL_LOCATION}`, {
+        // GHL V2 API uses leadconnectorhq.com
+        const response = await axios.get(`https://services.leadconnectorhq.com/opportunities/search?locationId=${GHL_LOCATION}`, {
             headers: { 
                 'Authorization': `Bearer ${GHL_KEY}`, 
                 'Version': '2021-07-28',
                 'Accept': 'application/json'
             },
-            timeout: 8000
+            timeout: 10000 
         });
 
-        let leads = response.data.opportunities || [];
-        
-        // If account is empty, provide high-quality demo data so the dashboard looks great
+        // GHL Search returns an object with an 'opportunities' array
+        const leads = response.data.opportunities || [];
+        console.log(`Successfully pulled ${leads.length} leads from GHL.`);
+
         if (leads.length === 0) {
-            console.log('Account empty. Sending high-quality demo data.');
+            console.log('No opportunities found in this pipeline. Sending Demo Data for UI.');
             return res.json({
                 success: true,
                 isDemoData: true,
@@ -56,8 +57,7 @@ app.post('/api/ghl/sync', async (req, res) => {
                 opportunities: [
                     { id: '1', name: 'Elite Solar Install', status: 'open', value: 25000, contact: 'James Miller' },
                     { id: '2', name: 'Commercial Roofing', status: 'won', value: 42000, contact: 'Sarah Chen' },
-                    { id: '3', name: 'HVAC System Upgrade', status: 'open', value: 12500, contact: 'Robert Fox' },
-                    { id: '4', name: 'Emergency Repair', status: 'lost', value: 4700, contact: 'Linda Wu' }
+                    { id: '3', name: 'HVAC System Upgrade', status: 'open', value: 12500, contact: 'Robert Fox' }
                 ]
             });
         }
@@ -75,21 +75,31 @@ app.post('/api/ghl/sync', async (req, res) => {
             },
             opportunities: leads.map(l => ({
                 id: l.id,
-                name: l.name || 'Unnamed Lead',
+                name: l.name || 'Unnamed Opportunity',
                 status: (l.status || 'open').toLowerCase(),
                 value: l.monetaryValue || 0,
-                contact: l.contact?.name || 'Unknown'
+                contact: l.contact?.name || l.contactName || 'Unknown'
             })).slice(0, 10)
         });
 
     } catch (error) {
-        console.error('API Error:', error.message);
-        // Fallback for demo display if API fails
+        const errorDetail = error.response?.data || error.message;
+        console.error('GHL API ERROR:', errorDetail);
+        
+        // Return structured error so the UI knows exactly why it failed
         res.json({
             success: true,
             isDemoData: true,
-            stats: { pipelineValue: 12500, totalLeads: 5, winRate: 100, aiActions: 0 },
-            opportunities: [{ id: 'err', name: 'Connect GHL to see real data', status: 'notice', value: 0, contact: 'System' }]
+            api_error: true,
+            error_message: error.response?.status === 401 ? "Unauthorized: Check your GHL Access Token" : error.message,
+            stats: { pipelineValue: 0, totalLeads: 0, winRate: 0, aiActions: 0 },
+            opportunities: [{ 
+                id: 'err', 
+                name: 'API Connection Failed', 
+                status: 'error', 
+                value: 0, 
+                contact: error.response?.status === 401 ? 'Invalid Token' : 'Check Logs' 
+            }]
         });
     }
 });
@@ -103,6 +113,7 @@ app.post('/api/ai/chat-token', async (req, res) => {
         });
         res.json({ success: true, signedUrl: response.data.signed_url });
     } catch (error) {
+        console.error('ElevenLabs Auth Error:', error.response?.data || error.message);
         res.status(500).json({ success: false, error: 'AI Offline' });
     }
 });
@@ -112,4 +123,8 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`--- MOORE AI SERVER STARTED ---`);
+    console.log(`Port: ${PORT}`);
+    console.log(`GHL Configured: ${!!GHL_KEY}`);
+});
