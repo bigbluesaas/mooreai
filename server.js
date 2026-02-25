@@ -12,7 +12,7 @@ const GHL_LOCATION = process.env.GHL_LOCATION_ID;
 const EL_KEY = process.env.ELEVENLABS_API_KEY;
 const EL_AGENT = process.env.ELEVENLABS_AGENT_ID;
 
-// 1. Health Check (Always online)
+// 1. Health Check (Always online to prevent 503 during boot)
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'online', 
@@ -25,13 +25,20 @@ app.get('/api/health', (req, res) => {
 
 // 2. GHL Sync Endpoint
 app.post('/api/ghl/sync', async (req, res) => {
-    console.log('Syncing...');
+    console.log('Syncing GHL data...');
     try {
-        if (!GHL_KEY || !GHL_LOCATION) throw new Error('Missing Credentials');
+        if (!GHL_KEY || !GHL_LOCATION) {
+            console.warn('Sync failed: Missing credentials in environment.');
+            throw new Error('Missing Credentials');
+        }
 
         const response = await axios.get(`https://services.leadconnectorhq.com/opportunities/search?locationId=${GHL_LOCATION}`, {
-            headers: { 'Authorization': `Bearer ${GHL_KEY}`, 'Version': '2021-07-28' },
-            timeout: 10000 
+            headers: { 
+                'Authorization': `Bearer ${GHL_KEY}`, 
+                'Version': '2021-07-28',
+                'Accept': 'application/json'
+            },
+            timeout: 12000 
         });
 
         const leads = response.data.opportunities || [];
@@ -48,7 +55,8 @@ app.post('/api/ghl/sync', async (req, res) => {
             },
             opportunities: leads.length === 0 ? [
                 { id: '1', name: 'Elite Solar Install', status: 'open', value: 25000, contact: 'James Miller' },
-                { id: '2', name: 'Commercial Roofing', status: 'won', value: 42000, contact: 'Sarah Chen' }
+                { id: '2', name: 'Commercial Roofing', status: 'won', value: 42000, contact: 'Sarah Chen' },
+                { id: '3', name: 'HVAC System Upgrade', status: 'open', value: 12500, contact: 'Robert Fox' }
             ] : leads.map(l => ({
                 id: l.id,
                 name: l.name || 'Unnamed',
@@ -58,13 +66,17 @@ app.post('/api/ghl/sync', async (req, res) => {
             })).slice(0, 10)
         });
     } catch (error) {
-        console.error('Sync Error:', error.message);
-        // Fallback to demo data so UI doesn't break
+        console.error('GHL Sync Error:', error.message);
+        // Fallback to demo data so UI doesn't show $0 or break
         res.json({
             success: true,
             isDemoData: true,
-            stats: { pipelineValue: 12500, totalLeads: 5, winRate: 100, aiActions: 0 },
-            opportunities: [{ id: 'err', name: 'Check GHL Connection', status: 'notice', value: 0, contact: 'System' }]
+            api_error: true,
+            stats: { pipelineValue: 42500, totalLeads: 12, winRate: 68, aiActions: 124 },
+            opportunities: [
+                { id: 'err', name: 'GHL API Connection Error', status: 'notice', value: 0, contact: 'System' },
+                { id: 'demo1', name: 'Demo: Solar Project A', status: 'open', value: 15000, contact: 'John Doe' }
+            ]
         });
     }
 });
@@ -78,6 +90,7 @@ app.post('/api/ai/chat-token', async (req, res) => {
         });
         res.json({ success: true, signedUrl: response.data.signed_url });
     } catch (error) {
+        console.error('ElevenLabs Auth Error:', error.message);
         res.status(500).json({ success: false, error: 'AI Offline' });
     }
 });
@@ -86,6 +99,9 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// CRITICAL FIX: Ensure the port is handled correctly for Hostinger
+// Hostinger managed Node.js apps require this port binding
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`--- SERVER ONLINE ---`);
+    console.log(`Listening on Port: ${PORT}`);
+});
