@@ -3,44 +3,44 @@ const path = require('path');
 const app = express();
 
 /**
- * EMERGENCY RECOVERY MODE
- * Goal: Kill 503 error by binding port immediately and removing all heavy dependencies.
+ * STUPID SIMPLE RECOVERY SERVER
+ * Goal: Force the UI live and kill the 503.
  */
 
+// 1. Immediate Port Binding
 const PORT = process.env.PORT || 3000;
-
-// 1. Bind port immediately so Hostinger sees the app as "Healthy"
 app.listen(PORT, () => {
-    console.log(`RECOVERY SERVER LIVE ON PORT ${PORT}`);
+    console.log('------------------------------------');
+    console.log(`SERVER STARTED ON PORT: ${PORT}`);
+    console.log('------------------------------------');
 });
 
 app.use(express.json());
 app.use(express.static('.'));
 
-// 2. Mock API Routes - Guaranteed to return 200 OK
+// 2. Barebones Health Check
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'online', mode: 'recovery', note: 'Firebase/GHL temporarily disabled to clear 503' });
+    res.json({ 
+        status: 'online', 
+        message: 'Recovery server is live',
+        timestamp: new Date().toISOString()
+    });
 });
 
-app.get('/api/debug/logs', (req, res) => {
-    res.json({ logs: [{ time: new Date().toLocaleTimeString(), msg: "Recovery mode active. UI is live.", type: "info" }] });
-});
-
-// 3. Mock Sync - Returns demo data instantly so UI populates
+// 3. Mock Data for Dashboard (No API calls)
 app.post('/api/ghl/sync', (req, res) => {
     res.json({
         success: true,
         isDemo: true,
         stats: {
-            pipelineValue: 125500,
-            totalLeads: 42,
-            winRate: 88,
-            aiActions: 512
+            pipelineValue: 155000,
+            totalLeads: 48,
+            winRate: 82,
+            aiActions: 624
         },
         opportunities: [
-            { id: '1', name: 'Recovery: Solar System A', status: 'open', value: 35000, contact: 'System Stable' },
-            { id: '2', name: 'Recovery: Roof Replacement', status: 'won', value: 12000, contact: 'Connection Live' },
-            { id: '3', name: 'Recovery: HVAC Repair', status: 'open', value: 4500, contact: 'Port Bound' }
+            { id: 'r1', name: 'Recovery Lead: Solar', status: 'open', value: 45000, contact: 'Server Stable' },
+            { id: 'r2', name: 'Recovery Lead: Roof', status: 'won', value: 15000, contact: 'Port Bound' }
         ]
     });
 });
